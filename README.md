@@ -32,6 +32,16 @@ v0.1 is a tight vertical slice: schema, series cache, batched writer, one contin
 
 Well-posed, and the spec's leanings look right on all of them: keep `:tables` the default chunk backend, make aggregate auto-routing explicit opt-in (`resolve: :auto`), require counters to be declared rather than guessed for `rate/1`, and leave per-file vs per-label tenancy to the host application.
 
+## Development
+
+```
+mix quality
+```
+
+Runs the full gate: format check, compile with warnings as errors,
+`hex.audit`, `credo --strict`, the test suite, and `dialyzer`. All of it
+must pass before a change lands.
+
 ## License
 
 Apache-2.0. Every feature — no community edition, no source-available tier.

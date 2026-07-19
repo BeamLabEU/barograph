@@ -87,9 +87,9 @@ defmodule Barograph.Barogram do
     scale_y = scaler(y_min, y_max, @pad_top + plot_h, @pad_top)
 
     polyline =
-      points
-      |> Enum.map(fn {x, y} -> "#{fmt_coord(scale_x.(x))},#{fmt_coord(scale_y.(y))}" end)
-      |> Enum.join(" ")
+      Enum.map_join(points, " ", fn {x, y} ->
+        "#{fmt_coord(scale_x.(x))},#{fmt_coord(scale_y.(y))}"
+      end)
 
     """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 #{width} #{height}" width="#{width}" height="#{height}" role="img" class="barogram">
@@ -126,13 +126,11 @@ defmodule Barograph.Barogram do
   end
 
   defp hover_points(points, scale_x, scale_y) when length(points) <= @max_hover_points do
-    points
-    |> Enum.map(fn {x, y} ->
+    Enum.map_join(points, "", fn {x, y} ->
       """
         <circle class="barogram-point" cx="#{fmt_coord(scale_x.(x))}" cy="#{fmt_coord(scale_y.(y))}" r="2"><title>#{fmt_number(x)}, #{fmt_number(y)}</title></circle>
       """
     end)
-    |> Enum.join()
   end
 
   defp hover_points(_points, _scale_x, _scale_y), do: ""

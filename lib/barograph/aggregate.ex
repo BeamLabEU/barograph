@@ -42,7 +42,7 @@ defmodule Barograph.Aggregate do
   in `bg_agg_meta`. The watermark starts at zero, so the first refresh
   backfills all existing data up to `now - lag` (Timescale behaviour).
   """
-  @spec create(:exqlite.conn(), String.t(), keyword(), atom()) :: :ok | {:error, term()}
+  @spec create(Exqlite.Sqlite3.db(), String.t(), keyword(), atom()) :: :ok | {:error, term()}
   def create(conn, name, opts, time_unit) do
     with :ok <- check_name(name),
          :ok <- check_absent(conn, name),
@@ -71,7 +71,7 @@ defmodule Barograph.Aggregate do
   end
 
   @doc "All registered aggregate definitions."
-  @spec definitions(:exqlite.conn()) :: [definition()]
+  @spec definitions(Exqlite.Sqlite3.db()) :: [definition()]
   def definitions(conn) do
     {:ok, statement} =
       Exqlite.Sqlite3.prepare(
@@ -108,7 +108,7 @@ defmodule Barograph.Aggregate do
   so a sample exactly at `upper` stays in its (not yet complete) bucket
   and is picked up by a later refresh.
   """
-  @spec refresh(:exqlite.conn(), definition(), integer()) :: :ok
+  @spec refresh(Exqlite.Sqlite3.db(), definition(), integer()) :: :ok
   def refresh(conn, defn, now) do
     %{name: name, bucket_width: width, watermark: watermark, lag: lag} = defn
     upper = div(now - lag, width) * width
@@ -130,7 +130,7 @@ defmodule Barograph.Aggregate do
   `bg_agg_invalid` per affected aggregate and bucket. `rows` are
   `{series_id, ts}` pairs from a just-committed batch.
   """
-  @spec mark_invalidations(:exqlite.conn(), [{integer(), integer()}]) :: :ok
+  @spec mark_invalidations(Exqlite.Sqlite3.db(), [{integer(), integer()}]) :: :ok
   def mark_invalidations(_conn, []), do: :ok
 
   def mark_invalidations(conn, rows) do

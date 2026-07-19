@@ -14,8 +14,14 @@ defmodule Barograph.MixProject do
       package: package(),
       description: description(),
       source_url: @source_url,
-      docs: docs()
+      docs: docs(),
+      aliases: aliases(),
+      dialyzer: dialyzer()
     ]
+  end
+
+  def cli do
+    [preferred_envs: [quality: :test, dialyzer: :test, credo: :test]]
   end
 
   def application do
@@ -28,7 +34,32 @@ defmodule Barograph.MixProject do
   defp deps do
     [
       {:exqlite, "~> 0.39.0"},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp aliases do
+    [
+      quality: [
+        # hex.audit must run before compile — the Hex archive task
+        # registry doesn't survive a `mix compile` within the same
+        # alias/`mix do` chain.
+        "hex.audit",
+        "format --check-formatted",
+        "compile --force --warnings-as-errors",
+        "credo --strict",
+        "test",
+        "dialyzer"
+      ]
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_add_apps: [:ex_unit],
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 

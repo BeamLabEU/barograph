@@ -31,7 +31,7 @@ defmodule Barograph.Schema do
       given) when opening an existing database.
 
   """
-  @spec migrate(:exqlite.conn(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec migrate(Exqlite.Sqlite3.db(), keyword()) :: {:ok, map()} | {:error, term()}
   def migrate(conn, opts) do
     if initialised?(conn) do
       validate(conn, opts)
@@ -56,9 +56,7 @@ defmodule Barograph.Schema do
   defp create(conn, opts) do
     time_unit = Keyword.get(opts, :time_unit, :second)
 
-    if time_unit not in @time_units do
-      {:error, {:invalid_time_unit, time_unit}}
-    else
+    if time_unit in @time_units do
       :ok = execute_batch(conn, ddl())
 
       meta = %{
@@ -79,6 +77,8 @@ defmodule Barograph.Schema do
 
       :ok = Exqlite.Sqlite3.release(conn, statement)
       {:ok, meta}
+    else
+      {:error, {:invalid_time_unit, time_unit}}
     end
   end
 
