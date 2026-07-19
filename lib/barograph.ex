@@ -115,6 +115,48 @@ defmodule Barograph do
     Barograph.Writer.flush(writer(db))
   end
 
+  @doc """
+  Queries a metric, optionally bucketed and aggregated (spec §9.2 level 1).
+
+      Barograph.query(db, "engine_temp",
+        labels: %{forklift: "FL-07"},
+        from: ~U[2026-07-01 00:00:00Z],
+        to: ~U[2026-07-19 00:00:00Z],
+        bucket: {1, :hour},
+        agg: :avg
+      )
+
+  With `:bucket` (and `:agg`, default `:avg`), returns
+  `{:ok, [%{bucket:, value:}, ...]}`. Without `:bucket`, returns raw
+  samples as `%{ts, value}` maps. See `Barograph.Query.run/3` for all
+  options.
+  """
+  @spec query(db(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def query(db, metric, opts \\ []) do
+    Barograph.Query.run(db, metric, opts)
+  end
+
+  @doc """
+  Runs raw SQL against the database (spec §9.2 level 3).
+
+  Always available, never second-class: every design decision in
+  Barograph keeps the file queryable with plain SQL. Positional
+  parameters (`?1`, `?2`, …) are supported. Returns rows as maps of
+  column name to value.
+
+      {:ok, rows} = Barograph.sql(db, "SELECT * FROM bg_series")
+  """
+  @spec sql(db(), String.t(), [term()]) :: {:ok, [%{String.t() => term()}]} | {:error, term()}
+  def sql(db, sql, params \\ []) do
+    Barograph.SQL.query(db, sql, params)
+  end
+
+  @doc "Returns the database's time unit (`:second`, `:millisecond`, or `:microsecond`)."
+  @spec time_unit(db()) :: atom()
+  def time_unit(db) do
+    Barograph.Writer.time_unit(writer(db))
+  end
+
   defp writer({:via, Registry, {Barograph.Registry, {:database, key}}}),
     do: {:via, Registry, {Barograph.Registry, {:writer, key}}}
 end

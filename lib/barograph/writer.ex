@@ -50,6 +50,12 @@ defmodule Barograph.Writer do
     GenServer.call(writer, :flush)
   end
 
+  @doc "Returns the database's time unit (`:second`, `:millisecond`, `:microsecond`)."
+  @spec time_unit(GenServer.name()) :: atom()
+  def time_unit(writer) do
+    GenServer.call(writer, :time_unit)
+  end
+
   @impl true
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
@@ -75,7 +81,7 @@ defmodule Barograph.Writer do
        %{
          conn: conn,
          db: db,
-         time_unit: time_unit(meta),
+         time_unit: parse_time_unit(meta),
          insert_series: insert_series,
          select_series: select_series,
          buffer: [],
@@ -102,6 +108,10 @@ defmodule Barograph.Writer do
 
   def handle_call(:flush, _from, state) do
     {:reply, :ok, do_flush(state)}
+  end
+
+  def handle_call(:time_unit, _from, state) do
+    {:reply, state.time_unit, state}
   end
 
   @impl true
@@ -251,7 +261,7 @@ defmodule Barograph.Writer do
     end
   end
 
-  defp time_unit(%{"time_unit" => unit}), do: String.to_existing_atom(unit)
+  defp parse_time_unit(%{"time_unit" => unit}), do: String.to_existing_atom(unit)
 
   defp writer_name({:via, Registry, {Barograph.Registry, {:database, key}}}),
     do: {:via, Registry, {Barograph.Registry, {:writer, key}}}
