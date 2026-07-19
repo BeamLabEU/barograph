@@ -90,8 +90,10 @@ The reviewer confirmed all other code and report claims from the first review ro
 
 ## Remaining for v0.1
 
-- Step 5: `Barograph.Barogram.svg/2` basic line chart.
+- ~~Step 5: `Barograph.Barogram.svg/2` basic line chart.~~ **Done** (2026-07-19): line-style SVG rendering of `query/3` results — `barogram-*` classes, `currentColor` stroke, y gridlines with labels, first/last x labels, hover `<title>` points (≤500), handles empty/constant/single-point series. Area/step/scatter and legends remain v0.5 (spec §11.3). Validated as well-formed XML; no SVG rasterizer available in the dev environment for a visual check.
+
+**v0.1 vertical slice is now feature-complete** against spec §14: schema, writer, `time_bucket` queries, one continuous aggregate with watermark refresh, and basic `Barogram.svg/2`.
 
 ## Test status
 
-`mix test`: 47 tests, 0 failures (2 excluded: benchmarks). Files: `test/barograph_test.exs`, `test/barograph/{labels,writer,query,aggregate,rows}_test.exs`, `test/barograph/benchmark_test.exs`.
+`mix test`: 61 tests, 0 failures (2 excluded: benchmarks). Files: `test/barograph_test.exs`, `test/barograph/{labels,writer,query,aggregate,rows,barogram}_test.exs`, `test/barograph/benchmark_test.exs`.
