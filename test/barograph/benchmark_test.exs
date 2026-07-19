@@ -65,7 +65,9 @@ defmodule Barograph.BenchmarkTest do
         )
       end)
 
-    IO.puts("\n#{total} samples bucketed hourly in #{div(micros, 1_000)} ms (#{length(rows)} buckets)")
+    IO.puts(
+      "\n#{total} samples bucketed hourly in #{div(micros, 1_000)} ms (#{length(rows)} buckets)"
+    )
 
     assert length(rows) == days * 24
     assert micros < 100_000

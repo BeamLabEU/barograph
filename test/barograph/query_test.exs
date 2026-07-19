@@ -68,7 +68,12 @@ defmodule Barograph.QueryTest do
       to = DateTime.from_unix!(base + 3_600)
 
       assert {:ok, rows} =
-               Barograph.query(db, "engine_temp", from: from, to: to, agg: :count, bucket: {1, :hour})
+               Barograph.query(db, "engine_temp",
+                 from: from,
+                 to: to,
+                 agg: :count,
+                 bucket: {1, :hour}
+               )
 
       assert [%{value: 60}] = rows
     end

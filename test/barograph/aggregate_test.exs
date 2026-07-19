@@ -44,8 +44,20 @@ defmodule Barograph.AggregateTest do
                  refresh_every: {1, :minute}
                )
 
-      assert {:ok, [%{"name" => "cpu_1h", "source" => "cpu_usage", "bucket_width" => 3_600, "lag" => 300, "refresh_every" => 60_000}]} =
-               Barograph.sql(db, "SELECT name, source, bucket_width, lag, refresh_every FROM bg_agg_meta")
+      assert {:ok,
+              [
+                %{
+                  "name" => "cpu_1h",
+                  "source" => "cpu_usage",
+                  "bucket_width" => 3_600,
+                  "lag" => 300,
+                  "refresh_every" => 60_000
+                }
+              ]} =
+               Barograph.sql(
+                 db,
+                 "SELECT name, source, bucket_width, lag, refresh_every FROM bg_agg_meta"
+               )
 
       assert {:ok, [_ | _]} =
                Barograph.sql(db, "SELECT name FROM pragma_table_info('bg_agg_cpu_1h')")
@@ -56,19 +68,34 @@ defmodule Barograph.AggregateTest do
 
       assert {:error, {:invalid_aggregate_name, _}} =
                Barograph.create_continuous_aggregate(db, "cpu_1h; DROP TABLE bg_meta",
-                 from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {5, :minute}, refresh_every: {1, :minute})
+                 from: "cpu_usage",
+                 bucket: {1, :hour},
+                 refresh_lag: {5, :minute},
+                 refresh_every: {1, :minute}
+               )
 
       assert {:error, {:missing_option, :from}} =
                Barograph.create_continuous_aggregate(db, "cpu_1h",
-                 bucket: {1, :hour}, refresh_lag: {5, :minute}, refresh_every: {1, :minute})
+                 bucket: {1, :hour},
+                 refresh_lag: {5, :minute},
+                 refresh_every: {1, :minute}
+               )
 
       assert :ok =
                Barograph.create_continuous_aggregate(db, "cpu_1h",
-                 from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {5, :minute}, refresh_every: {1, :minute})
+                 from: "cpu_usage",
+                 bucket: {1, :hour},
+                 refresh_lag: {5, :minute},
+                 refresh_every: {1, :minute}
+               )
 
       assert {:error, {:aggregate_exists, "cpu_1h"}} =
                Barograph.create_continuous_aggregate(db, "cpu_1h",
-                 from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {5, :minute}, refresh_every: {1, :minute})
+                 from: "cpu_usage",
+                 bucket: {1, :hour},
+                 refresh_lag: {5, :minute},
+                 refresh_every: {1, :minute}
+               )
     end
   end
 
@@ -79,7 +106,11 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1h",
-          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :minute})
+          from: "cpu_usage",
+          bucket: {1, :hour},
+          refresh_lag: {0, :second},
+          refresh_every: {1, :minute}
+        )
 
       assert :ok = Barograph.refresh_aggregates(db)
 
@@ -111,15 +142,22 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1h",
-          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :minute})
+          from: "cpu_usage",
+          bucket: {1, :hour},
+          refresh_lag: {0, :second},
+          refresh_every: {1, :minute}
+        )
 
       assert :ok = Barograph.refresh_aggregates(db)
+
       assert {:ok, [%{"watermark" => watermark}]} =
                Barograph.sql(db, "SELECT watermark FROM bg_agg_meta WHERE name = 'cpu_1h'")
+
       assert watermark >= base + 3_600
 
       # Rerunning with no new data changes nothing.
       assert :ok = Barograph.refresh_aggregates(db)
+
       assert [%{"count" => 60}, %{"count" => 60}] =
                Enum.map(agg_rows(db, "cpu_1h"), &Map.take(&1, ["count"]))
     end
@@ -134,7 +172,11 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1m",
-          from: "cpu_usage", bucket: {1, :minute}, refresh_lag: {5, :minute}, refresh_every: {1, :minute})
+          from: "cpu_usage",
+          bucket: {1, :minute},
+          refresh_lag: {5, :minute},
+          refresh_every: {1, :minute}
+        )
 
       assert :ok = Barograph.refresh_aggregates(db)
 
@@ -153,7 +195,11 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1h",
-          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :minute})
+          from: "cpu_usage",
+          bucket: {1, :hour},
+          refresh_lag: {0, :second},
+          refresh_every: {1, :minute}
+        )
 
       assert :ok = Barograph.refresh_aggregates(db)
       assert [%{"count" => 60} | _] = agg_rows(db, "cpu_1h")
@@ -167,9 +213,12 @@ defmodule Barograph.AggregateTest do
 
       assert :ok = Barograph.refresh_aggregates(db)
 
-      assert {:ok, []} = Barograph.sql(db, "SELECT bucket FROM bg_agg_invalid WHERE name = 'cpu_1h'")
+      assert {:ok, []} =
+               Barograph.sql(db, "SELECT bucket FROM bg_agg_invalid WHERE name = 'cpu_1h'")
+
       assert [%{"count" => 61, "max" => 500.0} | _] = agg_rows(db, "cpu_1h")
     end
+
     test "a sample exactly at the refresh upper bound is not dropped", context do
       db = open(context)
       base = seed(db)
@@ -177,7 +226,11 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1h",
-          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :minute})
+          from: "cpu_usage",
+          bucket: {1, :hour},
+          refresh_lag: {0, :second},
+          refresh_every: {1, :minute}
+        )
 
       # Drive refresh with a controlled `now` so its upper bound lands
       # exactly on the sample at base + 3600 (regression: that sample
@@ -214,7 +267,11 @@ defmodule Barograph.AggregateTest do
 
       :ok =
         Barograph.create_continuous_aggregate(db, "cpu_1h",
-          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :second})
+          from: "cpu_usage",
+          bucket: {1, :hour},
+          refresh_lag: {0, :second},
+          refresh_every: {1, :second}
+        )
 
       Process.sleep(1_500)
       assert [%{"count" => 60} | _] = agg_rows(db, "cpu_1h")

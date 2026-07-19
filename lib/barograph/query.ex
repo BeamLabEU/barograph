@@ -97,7 +97,9 @@ defmodule Barograph.Query do
     {label_clauses, label_params} =
       opts
       |> Keyword.get(:labels, %{})
-      |> Enum.map(fn {key, value} -> {"json_extract(r.labels, ?) = ?", ["$.#{key}", to_string(value)]} end)
+      |> Enum.map(fn {key, value} ->
+        {"json_extract(r.labels, ?) = ?", ["$.#{key}", to_string(value)]}
+      end)
       |> Enum.unzip()
 
     clauses = ["r.metric = ?" | label_clauses]

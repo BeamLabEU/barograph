@@ -138,6 +138,5 @@ defmodule Barograph.WriterTest do
       assert {:error, :overloaded} =
                Barograph.write_many(db, [{"m", %{}, 7.0, 7}])
     end
-
   end
 end

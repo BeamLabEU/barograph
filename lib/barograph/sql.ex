@@ -21,17 +21,21 @@ defmodule Barograph.SQL do
   def query(db, sql, params \\ []) do
     path = path(db)
 
-    with {:ok, conn} <- Exqlite.Sqlite3.open(path),
-         :ok <- Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout = 5000"),
-         {:ok, statement} <- Exqlite.Sqlite3.prepare(conn, sql),
-         :ok <- Exqlite.Sqlite3.bind(statement, params),
-         {:ok, columns} <- Exqlite.Sqlite3.columns(conn, statement),
-         {:ok, raw_rows} <- Barograph.Rows.fetch_all(conn, statement) do
-      :ok = Exqlite.Sqlite3.release(conn, statement)
-      :ok = Exqlite.Sqlite3.close(conn)
-      {:ok, Enum.map(raw_rows, &Map.new(Enum.zip(columns, &1)))}
-    else
-      {:error, reason} -> {:error, reason}
+    with {:ok, conn} <- Exqlite.Sqlite3.open(path) do
+      try do
+        with :ok <- Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout = 5000"),
+             {:ok, statement} <- Exqlite.Sqlite3.prepare(conn, sql),
+             :ok <- Exqlite.Sqlite3.bind(statement, params),
+             {:ok, columns} <- Exqlite.Sqlite3.columns(conn, statement),
+             {:ok, raw_rows} <- Barograph.Rows.fetch_all(conn, statement) do
+          :ok = Exqlite.Sqlite3.release(conn, statement)
+          {:ok, Enum.map(raw_rows, &Map.new(Enum.zip(columns, &1)))}
+        end
+      after
+        # Close on every path, error included — statements are freed
+        # with the connection.
+        Exqlite.Sqlite3.close(conn)
+      end
     end
   end
 

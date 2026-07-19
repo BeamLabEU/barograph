@@ -52,7 +52,9 @@ defmodule BarographTest do
     test "honours a custom time unit at creation", context do
       path = db_path(context)
       assert {:ok, _db} = Barograph.open(path, time_unit: :millisecond)
-      assert [["millisecond"]] == raw_query(path, "SELECT value FROM bg_meta WHERE key = 'time_unit'")
+
+      assert [["millisecond"]] ==
+               raw_query(path, "SELECT value FROM bg_meta WHERE key = 'time_unit'")
     end
 
     test "reopening an existing database succeeds", context do
@@ -81,8 +83,12 @@ defmodule BarographTest do
       assert :ok = Barograph.close(db)
 
       {:ok, conn} = Exqlite.Sqlite3.open(path)
+
       {:ok, statement} =
-        Exqlite.Sqlite3.prepare(conn, "UPDATE bg_meta SET value = '99' WHERE key = 'schema_version'")
+        Exqlite.Sqlite3.prepare(
+          conn,
+          "UPDATE bg_meta SET value = '99' WHERE key = 'schema_version'"
+        )
 
       :ok = Exqlite.Sqlite3.bind(statement, [])
       :done = Exqlite.Sqlite3.step(conn, statement)
@@ -112,7 +118,9 @@ defmodule BarographTest do
 
     test "closing an unopened database is a no-op" do
       assert :ok =
-               Barograph.close({:via, Registry, {Barograph.Registry, {:database, "/nonexistent"}}})
+               Barograph.close(
+                 {:via, Registry, {Barograph.Registry, {:database, "/nonexistent"}}}
+               )
     end
   end
 
