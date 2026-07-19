@@ -68,7 +68,7 @@ defmodule Barograph.Writer do
     end
   end
 
-  @doc "Creates a continuous aggregate. See `Barograph.Aggregate.create/5`."
+  @doc "Creates a continuous aggregate. See `Barograph.Aggregate.create/4`."
   @spec create_aggregate(GenServer.name(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_aggregate(writer, name, opts) do
     GenServer.call(writer, {:create_aggregate, name, opts})
