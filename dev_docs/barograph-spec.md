@@ -357,19 +357,20 @@ Getting this wrong is the most common failure in hand-rolled rollup systems.
 
 ```sql
 CREATE TABLE bg_agg_meta (
-  name       TEXT PRIMARY KEY,
-  source     TEXT NOT NULL,
-  bucket_us  INTEGER NOT NULL,
-  watermark  INTEGER NOT NULL,   -- highest finalised bucket
-  lag_us     INTEGER NOT NULL
+  name           TEXT PRIMARY KEY,
+  source         TEXT NOT NULL,
+  bucket_width   INTEGER NOT NULL,  -- in the database's time unit
+  watermark      INTEGER NOT NULL,  -- buckets below this are finalised
+  lag            INTEGER NOT NULL,  -- in the database's time unit
+  refresh_every  INTEGER NOT NULL   -- milliseconds (scheduling interval)
 ) STRICT;
 ```
 
-The refresh job aggregates only `(watermark, now - lag]` and upserts. Idempotent, crash-safe, and cheap — the cost is proportional to new data, not total data.
+The refresh job aggregates only `[watermark, now - lag)` — exclusive at the top, so a sample exactly at the boundary stays in its incomplete bucket — and upserts. Idempotent, crash-safe, and cheap — the cost is proportional to new data, not total data.
 
 ### 8.4 Invalidation
 
-Late-arriving data below the watermark is recorded in `bg_agg_invalid (name, bucket)`. The refresh job recomputes dirty buckets before advancing. Bounded by `refresh_lag`; samples older than the invalidation horizon are accepted into raw storage but do not trigger recomputation, and this is documented as a known limitation.
+Late-arriving data below the watermark is recorded in `bg_agg_invalid (name, bucket)` — in the same transaction as the sample batch, so a crash cannot leave committed late data with unmarked buckets. The refresh job recomputes dirty buckets before advancing. Invalidation is deliberately **not** bounded by `refresh_lag`: any late sample below the watermark triggers recomputation of its bucket. Correctness over refresh economy — a dirty bucket is a full rescan of that bucket only.
 
 ### 8.5 Real-time view
 

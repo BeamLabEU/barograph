@@ -101,6 +101,10 @@ defmodule Barograph.Aggregate do
   Refreshes one aggregate: recomputes invalidated buckets below the
   watermark, then finalises buckets up to `now - lag`. Idempotent and
   crash-safe — rerunning after a failure redoes the same work.
+
+  The aggregated range is `[watermark, upper)` — exclusive at the top,
+  so a sample exactly at `upper` stays in its (not yet complete) bucket
+  and is picked up by a later refresh.
   """
   @spec refresh(:exqlite.conn(), definition(), integer()) :: :ok
   def refresh(conn, defn, now) do
@@ -111,7 +115,7 @@ defmodule Barograph.Aggregate do
     :ok = recompute_invalid_buckets(conn, defn)
 
     if upper > watermark do
-      :ok = aggregate_range(conn, defn, watermark + 1, upper + 1)
+      :ok = aggregate_range(conn, defn, watermark, upper)
       :ok = set_watermark(conn, name, upper)
     end
 

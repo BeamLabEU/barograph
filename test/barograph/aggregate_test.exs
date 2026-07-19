@@ -129,7 +129,7 @@ defmodule Barograph.AggregateTest do
       now = System.os_time(:second)
       base = div(now, 60) * 60
 
-      :ok = Barograph.write_many(db, for(m <- 0..5, do: {"cpu_usage", %{}, 1.0, base - m * 60}))
+      :ok = Barograph.write_many(db, for(m <- 0..10, do: {"cpu_usage", %{}, 1.0, base - m * 60}))
       :ok = Barograph.flush(db)
 
       :ok =
@@ -141,9 +141,9 @@ defmodule Barograph.AggregateTest do
       buckets = Enum.map(agg_rows(db, "cpu_1m"), & &1["bucket"])
       assert buckets != []
 
-      # Nothing at or above now - lag is finalised.
+      # Only buckets that ended at or before now - lag are finalised.
       upper = div(System.os_time(:second) - 300, 60) * 60
-      assert Enum.all?(buckets, &(&1 <= upper))
+      assert Enum.all?(buckets, &(&1 + 60 <= upper))
       refute base in buckets
     end
 
@@ -169,6 +169,40 @@ defmodule Barograph.AggregateTest do
 
       assert {:ok, []} = Barograph.sql(db, "SELECT bucket FROM bg_agg_invalid WHERE name = 'cpu_1h'")
       assert [%{"count" => 61, "max" => 500.0} | _] = agg_rows(db, "cpu_1h")
+    end
+    test "a sample exactly at the refresh upper bound is not dropped", context do
+      db = open(context)
+      base = seed(db)
+      path = Path.join(context.tmp_dir, "agg.bg")
+
+      :ok =
+        Barograph.create_continuous_aggregate(db, "cpu_1h",
+          from: "cpu_usage", bucket: {1, :hour}, refresh_lag: {0, :second}, refresh_every: {1, :minute})
+
+      # Drive refresh with a controlled `now` so its upper bound lands
+      # exactly on the sample at base + 3600 (regression: that sample
+      # used to vanish from the aggregate — review finding B1).
+      {:ok, conn} = Exqlite.Sqlite3.open(path)
+      :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout = 5000")
+      [defn] = Barograph.Aggregate.definitions(conn)
+
+      # First refresh finalises only the first bucket; the boundary
+      # sample stays in its incomplete bucket.
+      :ok = Barograph.Aggregate.refresh(conn, defn, base + 3_600)
+      assert [%{"bucket" => ^base, "count" => 60}] = agg_rows(db, "cpu_1h")
+
+      # Second refresh finalises the second bucket — including the
+      # boundary sample at base + 3600.
+      [defn] = Barograph.Aggregate.definitions(conn)
+      :ok = Barograph.Aggregate.refresh(conn, defn, base + 7_200)
+
+      assert [%{"count" => 60}, %{"bucket" => second, "count" => 60, "first_ts" => first_ts}] =
+               agg_rows(db, "cpu_1h")
+
+      assert second == base + 3_600
+      assert first_ts == base + 3_600
+
+      :ok = Exqlite.Sqlite3.close(conn)
     end
   end
 

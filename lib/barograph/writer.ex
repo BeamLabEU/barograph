@@ -34,26 +34,38 @@ defmodule Barograph.Writer do
   @spec write(GenServer.name(), String.t(), map(), number(), integer() | nil) ::
           :ok | {:error, :overloaded}
   def write(writer, metric, labels, value, ts) do
-    GenServer.call(writer, {:write, [{metric, labels, value, ts}]})
+    GenServer.call(writer, {:write, [{metric, labels, value, ts}]}, :infinity)
   end
 
   @doc "Buffers a list of `{metric, labels, value, ts}` samples."
   @spec write_many(GenServer.name(), [{String.t(), map(), number(), integer() | nil}]) ::
           :ok | {:error, :overloaded}
   def write_many(writer, samples) when is_list(samples) do
-    GenServer.call(writer, {:write, samples})
+    GenServer.call(writer, {:write, samples}, :infinity)
   end
 
   @doc "Synchronously commits any buffered samples."
   @spec flush(GenServer.name()) :: :ok
   def flush(writer) do
-    GenServer.call(writer, :flush)
+    # A large buffer on slow storage can take far longer than the 5s
+    # default; a caller crash here would be spurious — the commit itself
+    # is idempotent.
+    GenServer.call(writer, :flush, :infinity)
   end
 
-  @doc "Returns the database's time unit (`:second`, `:millisecond`, `:microsecond`)."
+  @doc """
+  Returns the database's time unit (`:second`, `:millisecond`, `:microsecond`).
+
+  Read from the Registry, not from the writer process — the unit is
+  immutable per file, and the read path must not couple to writer
+  liveness (e.g. during a long aggregate refresh).
+  """
   @spec time_unit(GenServer.name()) :: atom()
-  def time_unit(writer) do
-    GenServer.call(writer, :time_unit)
+  def time_unit({:via, Registry, {Barograph.Registry, {:writer, key}}}) do
+    case Registry.lookup(Barograph.Registry, {:writer, key}) do
+      [{_pid, time_unit}] -> time_unit
+      [] -> raise "barograph: no open database at #{key}"
+    end
   end
 
   @doc "Creates a continuous aggregate. See `Barograph.Aggregate.create/5`."
@@ -95,11 +107,14 @@ defmodule Barograph.Writer do
            ) do
       :ok = warm_series_cache(db, conn)
 
+      time_unit = parse_time_unit(meta)
+      {^time_unit, _} = register_time_unit(db, time_unit)
+
       {:ok,
        %{
          conn: conn,
          db: db,
-         time_unit: parse_time_unit(meta),
+         time_unit: time_unit,
          insert_series: insert_series,
          select_series: select_series,
          buffer: [],
@@ -128,10 +143,6 @@ defmodule Barograph.Writer do
     {:reply, :ok, do_flush(state)}
   end
 
-  def handle_call(:time_unit, _from, state) do
-    {:reply, state.time_unit, state}
-  end
-
   def handle_call({:create_aggregate, name, opts}, _from, state) do
     {:reply, Barograph.Aggregate.create(state.conn, name, opts, state.time_unit), state}
   end
@@ -141,6 +152,8 @@ defmodule Barograph.Writer do
   end
 
   def handle_call(:refresh_aggregates, _from, state) do
+    # Flush first — buffered samples must be visible to the refresh.
+    state = do_flush(state)
     now = System.os_time(state.time_unit)
     Enum.each(Barograph.Aggregate.definitions(state.conn), &Barograph.Aggregate.refresh(state.conn, &1, now))
     {:reply, :ok, state}
@@ -178,40 +191,51 @@ defmodule Barograph.Writer do
   defp do_flush(state) do
     %{conn: conn} = state
 
-    with :ok <- Exqlite.Sqlite3.execute(conn, "BEGIN") do
-      # The buffer accumulates newest-first; commit in arrival order so
-      # that on (series, ts) conflicts the latest write wins.
-      rows = Enum.reverse(state.buffer)
+    # The buffer accumulates newest-first; commit in arrival order so
+    # that on (series, ts) conflicts the latest write wins.
+    rows = Enum.reverse(state.buffer)
 
-      # One multi-row INSERT per flush: a single statement parse and one
-      # NIF round-trip instead of three calls per row.
-      result =
-        rows
-        |> Enum.chunk_every(@insert_rows_per_statement)
-        |> Enum.reduce_while(:ok, fn chunk, :ok ->
-          case insert_rows(conn, chunk) do
-            :done -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-
-      case result do
-        :ok ->
-          :ok = Exqlite.Sqlite3.execute(conn, "COMMIT")
-          # Late samples below an aggregate's watermark mark their
-          # bucket dirty; the next refresh recomputes it (spec §8.4).
-          :ok =
-            rows
-            |> Enum.map(fn {series_id, ts, _value} -> {series_id, ts} end)
-            |> then(&Barograph.Aggregate.mark_invalidations(conn, &1))
-
-        {:error, reason} ->
-          :ok = Exqlite.Sqlite3.execute(conn, "ROLLBACK")
-          Logger.error("barograph: batch commit failed, dropped #{state.buffer_size} samples: #{inspect(reason)}")
+    # Samples, and the invalidation marks of any late samples below an
+    # aggregate watermark, commit in ONE transaction (spec §8.4): a
+    # crash between the two would otherwise leave committed late data
+    # whose dirty buckets were never recorded — stale forever.
+    result =
+      with :ok <- Exqlite.Sqlite3.execute(conn, "BEGIN"),
+           :ok <- insert_chunked(conn, rows),
+           :ok <- mark_invalidations(conn, rows) do
+        Exqlite.Sqlite3.execute(conn, "COMMIT")
       end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        :ok = Exqlite.Sqlite3.execute(conn, "ROLLBACK")
+        Logger.error("barograph: batch commit failed, dropped #{state.buffer_size} samples: #{inspect(reason)}")
     end
 
     %{state | buffer: [], buffer_size: 0}
+  end
+
+  # One multi-row INSERT per statement: a single parse and one NIF
+  # round-trip instead of three calls per row.
+  defp insert_chunked(conn, rows) do
+    rows
+    |> Enum.chunk_every(@insert_rows_per_statement)
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      case insert_rows(conn, chunk) do
+        :done -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp mark_invalidations(conn, rows) do
+    Barograph.Aggregate.mark_invalidations(
+      conn,
+      Enum.map(rows, fn {series_id, ts, _value} -> {series_id, ts} end)
+    )
   end
 
   ## Series resolution (spec §7.4 — the write path never joins)
@@ -303,4 +327,11 @@ defmodule Barograph.Writer do
 
   defp writer_name({:via, Registry, {Barograph.Registry, {:database, key}}}),
     do: {:via, Registry, {Barograph.Registry, {:writer, key}}}
+
+  # Stores the immutable time unit as the writer's Registry value so
+  # readers can look it up without calling the writer (see time_unit/1).
+  defp register_time_unit(db, time_unit) do
+    {:via, Registry, {Barograph.Registry, key}} = writer_name(db)
+    Registry.update_value(Barograph.Registry, key, fn _ -> time_unit end)
+  end
 end
