@@ -68,6 +68,18 @@ A separate agent verified this report against the code. Findings and what was do
 
 The reviewer confirmed all other report claims, including the spec deviations above.
 
+## Second independent review (2026-07-19) and fixes applied
+
+A third agent re-verified the report and the B1–B5 fixes above (all confirmed correct, including the B1 regression test), then found and fixed one additional issue not previously flagged:
+
+- **B10 (HIGH, fixed)** — every place in the codebase that drained a prepared statement used the idiom `Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end) |> Stream.take_while(&match?({:row, _}, &1))`. `step/2` is typed `:done | :busy | {:row, row} | {:error, reason}`, and `:busy`/`{:error, reason}` can surface *after* a statement has already yielded rows (lock contention, disk I/O error, malformed data mid-scan — not just on the first step). `Stream.take_while` stops at the first non-`{:row, _}` value, so a mid-scan failure was treated identically to a clean `:done` and silently returned whatever rows had been collected so far as if the query had succeeded — no error, no indication of truncation. Confirmed reproducible: `json_extract` on a row with malformed JSON makes a real SQLite statement return `{:row, _}, {:row, _}, {:error, "malformed JSON"}`, and the old code silently returned the first two rows as a success.
+
+  Affected five sites: `Barograph.SQL.query/3` (the spec's "hard requirement" level-3 API — its own `"returns errors instead of raising"` test only covered a `prepare`-time failure, not a step-time one), `Barograph.Schema.read_meta/1`, `Barograph.Aggregate.definitions/1`, `Barograph.Aggregate.recompute_invalid_buckets/2`, `Barograph.Writer.warm_series_cache/2`.
+
+  Fix: new `Barograph.Rows` module with `fetch_all/2` (returns `{:ok, rows} | {:error, reason}`, for call sites that already thread `Result` tuples — `sql.ex`, `schema.ex`) and `fetch_all!/2` (raises on failure, for call sites that use the codebase's existing crash-on-unexpected-DB-error convention — `aggregate.ex`, `writer.ex`'s cache warm). All five sites now use one of the two instead of the bare `Stream.take_while` idiom. Regression tests in `test/barograph/rows_test.exs` force a genuine mid-scan SQLite error via malformed JSON and assert both the module (`fetch_all/2`, `fetch_all!/2`) and the public API (`Barograph.sql/3`) now report the failure instead of returning partial rows.
+
+The reviewer confirmed all other code and report claims from the first review round.
+
 ## Known limitations (v0.1, documented in code)
 
 - `sum_dt`/`sum_v_dt` (time-weighted average state) count intervals within the refreshed window only; the interval spanning a window boundary is not credited.
@@ -82,4 +94,4 @@ The reviewer confirmed all other report claims, including the spec deviations ab
 
 ## Test status
 
-`mix test`: 43 tests, 0 failures (2 excluded: benchmarks). Files: `test/barograph_test.exs`, `test/barograph/{labels,writer,query,aggregate}_test.exs`, `test/barograph/benchmark_test.exs`.
+`mix test`: 47 tests, 0 failures (2 excluded: benchmarks). Files: `test/barograph_test.exs`, `test/barograph/{labels,writer,query,aggregate,rows}_test.exs`, `test/barograph/benchmark_test.exs`.

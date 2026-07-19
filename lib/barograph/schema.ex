@@ -94,13 +94,10 @@ defmodule Barograph.Schema do
     {:ok, statement} = Exqlite.Sqlite3.prepare(conn, "SELECT key, value FROM bg_meta")
     :ok = Exqlite.Sqlite3.bind(statement, [])
 
-    meta =
-      Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end)
-      |> Stream.take_while(&match?({:row, _}, &1))
-      |> Map.new(fn {:row, [key, value]} -> {key, value} end)
-
-    :ok = Exqlite.Sqlite3.release(conn, statement)
-    {:ok, meta}
+    with {:ok, rows} <- Barograph.Rows.fetch_all(conn, statement) do
+      :ok = Exqlite.Sqlite3.release(conn, statement)
+      {:ok, Map.new(rows, fn [key, value] -> {key, value} end)}
+    end
   end
 
   defp check_schema_version(%{"schema_version" => @schema_version}), do: :ok

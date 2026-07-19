@@ -25,15 +25,11 @@ defmodule Barograph.SQL do
          :ok <- Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout = 5000"),
          {:ok, statement} <- Exqlite.Sqlite3.prepare(conn, sql),
          :ok <- Exqlite.Sqlite3.bind(statement, params),
-         {:ok, columns} <- Exqlite.Sqlite3.columns(conn, statement) do
-      rows =
-        Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end)
-        |> Stream.take_while(&match?({:row, _}, &1))
-        |> Enum.map(fn {:row, row} -> Map.new(Enum.zip(columns, row)) end)
-
+         {:ok, columns} <- Exqlite.Sqlite3.columns(conn, statement),
+         {:ok, raw_rows} <- Barograph.Rows.fetch_all(conn, statement) do
       :ok = Exqlite.Sqlite3.release(conn, statement)
       :ok = Exqlite.Sqlite3.close(conn)
-      {:ok, rows}
+      {:ok, Enum.map(raw_rows, &Map.new(Enum.zip(columns, &1)))}
     else
       {:error, reason} -> {:error, reason}
     end

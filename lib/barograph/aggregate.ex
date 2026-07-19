@@ -58,7 +58,9 @@ defmodule Barograph.Aggregate do
         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         """)
 
-      :ok = Exqlite.Sqlite3.bind(statement, [name, source, bucket_width, 0, lag, refresh_every_ms])
+      :ok =
+        Exqlite.Sqlite3.bind(statement, [name, source, bucket_width, 0, lag, refresh_every_ms])
+
       :done = Exqlite.Sqlite3.step(conn, statement)
       :ok = Exqlite.Sqlite3.release(conn, statement)
       :ok
@@ -80,9 +82,9 @@ defmodule Barograph.Aggregate do
     :ok = Exqlite.Sqlite3.bind(statement, [])
 
     defs =
-      Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end)
-      |> Stream.take_while(&match?({:row, _}, &1))
-      |> Enum.map(fn {:row, [name, source, bucket_width, watermark, lag, refresh_every]} ->
+      conn
+      |> Barograph.Rows.fetch_all!(statement)
+      |> Enum.map(fn [name, source, bucket_width, watermark, lag, refresh_every] ->
         %{
           name: name,
           source: source,
@@ -161,16 +163,21 @@ defmodule Barograph.Aggregate do
     :ok = Exqlite.Sqlite3.bind(statement, [name])
 
     buckets =
-      Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end)
-      |> Stream.take_while(&match?({:row, _}, &1))
-      |> Enum.map(fn {:row, [bucket]} -> bucket end)
+      conn
+      |> Barograph.Rows.fetch_all!(statement)
+      |> Enum.map(fn [bucket] -> bucket end)
 
     :ok = Exqlite.Sqlite3.release(conn, statement)
 
     Enum.each(buckets, fn bucket ->
       :ok = execute_with(conn, "DELETE FROM #{table_name(name)} WHERE bucket = ?1", [bucket])
       :ok = aggregate_range(conn, defn, bucket, bucket + defn.bucket_width)
-      :ok = execute_with(conn, "DELETE FROM bg_agg_invalid WHERE name = ?1 AND bucket = ?2", [name, bucket])
+
+      :ok =
+        execute_with(conn, "DELETE FROM bg_agg_invalid WHERE name = ?1 AND bucket = ?2", [
+          name,
+          bucket
+        ])
     end)
 
     :ok

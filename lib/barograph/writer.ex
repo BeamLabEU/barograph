@@ -14,7 +14,7 @@ defmodule Barograph.Writer do
 
   require Logger
 
-  alias Barograph.{Labels, SeriesCache}
+  alias Barograph.{Labels, Rows, SeriesCache}
 
   @default_batch_size 1_000
   @default_batch_timeout 100
@@ -155,7 +155,12 @@ defmodule Barograph.Writer do
     # Flush first — buffered samples must be visible to the refresh.
     state = do_flush(state)
     now = System.os_time(state.time_unit)
-    Enum.each(Barograph.Aggregate.definitions(state.conn), &Barograph.Aggregate.refresh(state.conn, &1, now))
+
+    Enum.each(
+      Barograph.Aggregate.definitions(state.conn),
+      &Barograph.Aggregate.refresh(state.conn, &1, now)
+    )
+
     {:reply, :ok, state}
   end
 
@@ -177,7 +182,11 @@ defmodule Barograph.Writer do
     series_id = resolve_series(state, metric, labels)
     ts = ts || System.os_time(state.time_unit)
 
-    state = %{state | buffer: [{series_id, ts, value} | state.buffer], buffer_size: state.buffer_size + 1}
+    state = %{
+      state
+      | buffer: [{series_id, ts, value} | state.buffer],
+        buffer_size: state.buffer_size + 1
+    }
 
     if state.buffer_size == 1 do
       Process.send_after(self(), :flush, state.batch_timeout)
@@ -212,7 +221,10 @@ defmodule Barograph.Writer do
 
       {:error, reason} ->
         :ok = Exqlite.Sqlite3.execute(conn, "ROLLBACK")
-        Logger.error("barograph: batch commit failed, dropped #{state.buffer_size} samples: #{inspect(reason)}")
+
+        Logger.error(
+          "barograph: batch commit failed, dropped #{state.buffer_size} samples: #{inspect(reason)}"
+        )
     end
 
     %{state | buffer: [], buffer_size: 0}
@@ -274,7 +286,14 @@ defmodule Barograph.Writer do
     %{conn: conn, insert_series: insert, select_series: select} = state
     created_at = System.os_time(:second)
 
-    :ok = Exqlite.Sqlite3.bind(insert, [metric, {:blob, labels_hash}, JSON.encode!(labels), created_at])
+    :ok =
+      Exqlite.Sqlite3.bind(insert, [
+        metric,
+        {:blob, labels_hash},
+        JSON.encode!(labels),
+        created_at
+      ])
+
     :done = Exqlite.Sqlite3.step(conn, insert)
     :ok = Exqlite.Sqlite3.reset(insert)
 
@@ -312,9 +331,9 @@ defmodule Barograph.Writer do
 
         :ok = Exqlite.Sqlite3.bind(statement, [])
 
-        Stream.repeatedly(fn -> Exqlite.Sqlite3.step(conn, statement) end)
-        |> Stream.take_while(&match?({:row, _}, &1))
-        |> Enum.each(fn {:row, [metric, labels_hash, id]} ->
+        conn
+        |> Rows.fetch_all!(statement)
+        |> Enum.each(fn [metric, labels_hash, id] ->
           SeriesCache.put(tid, metric, labels_hash, id)
         end)
 
