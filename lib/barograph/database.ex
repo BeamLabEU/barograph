@@ -6,6 +6,7 @@ defmodule Barograph.Database do
 
     * `Barograph.SeriesCache` — ETS label hash → series id cache
     * `Barograph.Writer` — owns the single write connection
+    * `Barograph.Refresher` — periodic continuous-aggregate refresh
 
   Started with `:rest_for_one` so a crash of the series cache also
   restarts the writer, which re-warms the cache on boot.
@@ -25,7 +26,8 @@ defmodule Barograph.Database do
 
     children = [
       {Barograph.SeriesCache, db: db},
-      {Barograph.Writer, Keyword.put(opts, :db, db)}
+      {Barograph.Writer, Keyword.put(opts, :db, db)},
+      {Barograph.Refresher, db: db}
     ]
 
     Supervisor.init(children, strategy: :rest_for_one)

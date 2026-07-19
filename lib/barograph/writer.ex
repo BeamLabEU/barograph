@@ -56,6 +56,24 @@ defmodule Barograph.Writer do
     GenServer.call(writer, :time_unit)
   end
 
+  @doc "Creates a continuous aggregate. See `Barograph.Aggregate.create/5`."
+  @spec create_aggregate(GenServer.name(), String.t(), keyword()) :: :ok | {:error, term()}
+  def create_aggregate(writer, name, opts) do
+    GenServer.call(writer, {:create_aggregate, name, opts})
+  end
+
+  @doc "All registered aggregate definitions."
+  @spec aggregate_definitions(GenServer.name()) :: [Barograph.Aggregate.definition()]
+  def aggregate_definitions(writer) do
+    GenServer.call(writer, :aggregate_definitions)
+  end
+
+  @doc "Refreshes every registered aggregate up to `now - lag`."
+  @spec refresh_aggregates(GenServer.name()) :: :ok
+  def refresh_aggregates(writer) do
+    GenServer.call(writer, :refresh_aggregates, :infinity)
+  end
+
   @impl true
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
@@ -114,6 +132,20 @@ defmodule Barograph.Writer do
     {:reply, state.time_unit, state}
   end
 
+  def handle_call({:create_aggregate, name, opts}, _from, state) do
+    {:reply, Barograph.Aggregate.create(state.conn, name, opts, state.time_unit), state}
+  end
+
+  def handle_call(:aggregate_definitions, _from, state) do
+    {:reply, Barograph.Aggregate.definitions(state.conn), state}
+  end
+
+  def handle_call(:refresh_aggregates, _from, state) do
+    now = System.os_time(state.time_unit)
+    Enum.each(Barograph.Aggregate.definitions(state.conn), &Barograph.Aggregate.refresh(state.conn, &1, now))
+    {:reply, :ok, state}
+  end
+
   @impl true
   def handle_info(:flush, state) do
     {:noreply, do_flush(state)}
@@ -166,6 +198,12 @@ defmodule Barograph.Writer do
       case result do
         :ok ->
           :ok = Exqlite.Sqlite3.execute(conn, "COMMIT")
+          # Late samples below an aggregate's watermark mark their
+          # bucket dirty; the next refresh recomputes it (spec §8.4).
+          :ok =
+            rows
+            |> Enum.map(fn {series_id, ts, _value} -> {series_id, ts} end)
+            |> then(&Barograph.Aggregate.mark_invalidations(conn, &1))
 
         {:error, reason} ->
           :ok = Exqlite.Sqlite3.execute(conn, "ROLLBACK")

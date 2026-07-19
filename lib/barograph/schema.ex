@@ -173,6 +173,21 @@ defmodule Barograph.Schema do
       payload    TEXT NOT NULL,
       PRIMARY KEY (series_id, ts)
     ) STRICT, WITHOUT ROWID;
+
+    CREATE TABLE bg_agg_meta (
+      name           TEXT PRIMARY KEY,
+      source         TEXT NOT NULL,
+      bucket_width   INTEGER NOT NULL,
+      watermark      INTEGER NOT NULL,
+      lag            INTEGER NOT NULL,
+      refresh_every  INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE bg_agg_invalid (
+      name    TEXT NOT NULL,
+      bucket  INTEGER NOT NULL,
+      PRIMARY KEY (name, bucket)
+    ) STRICT, WITHOUT ROWID;
     """
   end
 end

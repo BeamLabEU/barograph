@@ -30,7 +30,11 @@ defmodule BarographTest do
       tables =
         raw_query(path, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
 
-      assert tables == [["bg_events"], ["bg_meta"], ["bg_samples"], ["bg_series"]]
+      assert tables ==
+               Enum.map(
+                 ~w(bg_agg_invalid bg_agg_meta bg_events bg_meta bg_samples bg_series),
+                 &[&1]
+               )
     end
 
     test "records self-describing metadata", context do

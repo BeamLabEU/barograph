@@ -157,6 +157,35 @@ defmodule Barograph do
     Barograph.Writer.time_unit(writer(db))
   end
 
+  @doc """
+  Creates a continuous aggregate over a metric (spec §8).
+
+      Barograph.create_continuous_aggregate(db, "cpu_1h",
+        from: "cpu_usage",
+        bucket: {1, :hour},
+        refresh_lag: {5, :minute},
+        refresh_every: {1, :minute}
+      )
+
+  Creates the rollup table `bg_agg_<name>` storing partial aggregate
+  state (`count`/`sum`, never `avg`) and registers it for periodic
+  watermark-bounded refresh. Query it with plain SQL via `sql/3`.
+  """
+  @spec create_continuous_aggregate(db(), String.t(), keyword()) :: :ok | {:error, term()}
+  def create_continuous_aggregate(db, name, opts) do
+    Barograph.Writer.create_aggregate(writer(db), name, opts)
+  end
+
+  @doc """
+  Forces an immediate refresh of all continuous aggregates. Normally
+  handled by the refresher on each aggregate's `:refresh_every`
+  interval; useful in tests and after bulk imports.
+  """
+  @spec refresh_aggregates(db()) :: :ok
+  def refresh_aggregates(db) do
+    Barograph.Writer.refresh_aggregates(writer(db))
+  end
+
   defp writer({:via, Registry, {Barograph.Registry, {:database, key}}}),
     do: {:via, Registry, {Barograph.Registry, {:writer, key}}}
 end
