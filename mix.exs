@@ -42,7 +42,7 @@ defmodule Barograph.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
-        "Website" => "https://barographdb.com"
+        "Website" => "https://beamla.eu/libraries/barograph"
       },
       files: ~w(lib mix.exs README.md LICENSE)
     ]
