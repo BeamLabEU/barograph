@@ -539,7 +539,7 @@ The `RingFile` design is documented in Appendix A but is explicitly not v1 scope
 | `ecto_sqlite3` | optional | Ecto integration |
 | `oban` | optional | Aggregate refresh scheduling; falls back to internal timers |
 | `thousand_island` | optional | Graphite listener; only loaded when ingest is configured |
-| `jason` | yes | Label and payload JSON |
+| `jason` | no | Label and payload JSON — handled by Elixir's built-in `JSON` module (stdlib since 1.18), no dependency needed |
 
 No Rust NIFs. No precompiled artifacts. Everything compiles from source on the target.
 
