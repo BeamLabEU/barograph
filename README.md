@@ -1,4 +1,4 @@
-# barograph
+# Barograph
 
 Barograph — time-series and event analytics for Elixir, stored in SQLite. One file. No server. Full SQL.
 
