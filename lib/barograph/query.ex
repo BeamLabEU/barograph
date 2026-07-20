@@ -38,8 +38,7 @@ defmodule Barograph.Query do
 
     with {:ok, sql, params} <- build(metric, opts, time_unit),
          {:ok, rows} <- SQL.query(db, sql, params) do
-      # Columns are only ever :ts, :bucket, :value — existing atoms.
-      {:ok, Enum.map(rows, &Map.new(&1, fn {k, v} -> {String.to_existing_atom(k), v} end))}
+      {:ok, Enum.map(rows, &atomize_row/1)}
     end
   end
 
@@ -136,6 +135,20 @@ defmodule Barograph.Query do
       agg when agg in @aggregates -> :ok
       other -> {:error, {:invalid_aggregate, other}}
     end
+  end
+
+  # Columns are only ever "ts", "bucket", "value" — the generated SQL's
+  # own `AS` aliases in build/3, never user input. An explicit, bounded
+  # mapping avoids String.to_atom/1 (unnecessary here) and
+  # String.to_existing_atom/1 (which previously depended on those atoms
+  # having already been created as a side effect of some other module —
+  # e.g. Barograph.Barogram's pattern matches — being loaded first).
+  defp atomize_row(row) do
+    Map.new(row, fn
+      {"ts", v} -> {:ts, v}
+      {"bucket", v} -> {:bucket, v}
+      {"value", v} -> {:value, v}
+    end)
   end
 
   defp writer({:via, Registry, {Barograph.Registry, {:database, key}}}),

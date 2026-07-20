@@ -89,26 +89,34 @@ not covered here.
   to the sending agent. Same fire-and-forget posture as UDP-based
   statsd.
 
-## Unrelated finding (not fixed here, out of scope for this pass)
+## Unrelated bug found and fixed (predates this report, unrelated to ingest)
 
-While smoke-testing, `Barograph.Query.run/3` (`lib/barograph/query.ex:42`)
-was found to raise `ArgumentError` (`String.to_existing_atom/1`, "not an
-already existing atom") on a `query/3` call in a process where
-`Barograph.Barogram` has never been loaded — the `:ts`/`:value`/`:bucket`
-atoms this code relies on already existing are, today, only created as a
-side effect of `Barogram`'s own pattern matches (`lib/barograph/barogram.ex:62-63`)
+While smoke-testing the ingest listener, `Barograph.Query.run/3`
+(`lib/barograph/query.ex:42`) was found to raise `ArgumentError`
+(`String.to_existing_atom/1`, "not an already existing atom") on a
+`query/3` call in a process where `Barograph.Barogram` had never been
+loaded — the `:ts`/`:value`/`:bucket` atoms that code relied on already
+existing were, in practice, only created as a side effect of
+`Barogram`'s own pattern matches (`lib/barograph/barogram.ex:62-63`)
 happening to be compiled somewhere already-loaded. Every existing test
-passes only because ExUnit compiles and loads the whole `test/` tree
+passed only because ExUnit compiles and loads the whole `test/` tree
 (including files with literal `%{ts: ..., value: ...}` maps) up front,
 masking the issue. Repro: a bare `mix run` script that opens a database,
 writes a sample, and calls `Barograph.query/3` without ever touching
-`Barograph.Barogram` first. This affects any consumer using Barograph
-purely for storage+query without rendering — a use case this project
-explicitly supports — and is unrelated to the Graphite ingest work in
-this report; it predates it and touches neither file this pass changed.
-Worth a dedicated fix (e.g. `String.to_atom/1` is safe here specifically,
-since the three column names come from the SQL fragment generator, never
-from user input).
+`Barograph.Barogram` first — this affects any consumer using Barograph
+purely for storage+query without rendering, a use case this project
+explicitly supports.
+
+**Fixed**: replaced the dynamic `String.to_existing_atom(k)` with an
+explicit, bounded `atomize_row/1` pattern match over the three known
+column names (`"ts"`, `"bucket"`, `"value"` — the generated SQL's own
+`AS` aliases, never user input). This removes the dependency on atom
+pre-existence entirely, rather than swapping in `String.to_atom/1`
+(also safe here, but less self-documenting about *why* it's safe).
+Verified with the same never-load-Barogram repro, now returns
+`{:ok, [%{ts: 100, value: 1.0}]}` instead of crashing. `mix quality`
+re-run clean after the fix (188 mods/funs, no credo issues; 89 tests,
+0 failures; dialyzer clean).
 
 ## Test status
 
