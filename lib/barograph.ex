@@ -25,10 +25,17 @@ defmodule Barograph do
 
     * `:time_unit` - `:second` (default), `:millisecond`, or `:microsecond`.
       Fixed at creation; must match when reopening an existing database.
+    * `:ingest` - keyword list of protocol listeners to start alongside
+      this database, e.g. `ingest: [graphite: [port: 2003]]`. Omit for no
+      listeners (default — the native `write/4,5` API always works
+      regardless). Requires the optional `:thousand_island` dependency.
+      See `Barograph.Ingest.Supervisor`.
 
   ## Examples
 
       {:ok, db} = Barograph.open("/var/data/metrics.bg")
+
+      {:ok, db} = Barograph.open("/var/data/metrics.bg", ingest: [graphite: [port: 2003]])
 
   """
   @spec open(Path.t(), keyword()) :: {:ok, db()} | {:error, term()}

@@ -34,6 +34,7 @@ defmodule Barograph.MixProject do
   defp deps do
     [
       {:exqlite, "~> 0.39.0"},
+      {:thousand_island, "~> 1.5", optional: true},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

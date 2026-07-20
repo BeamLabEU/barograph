@@ -129,14 +129,26 @@ Ideas deliberately rejected:
 ```
 Barograph.Supervisor
 ├── Barograph.Registry              (via_tuple lookup per database)
-├── Barograph.DatabaseSupervisor    (DynamicSupervisor, one child per open DB)
-│   └── Barograph.Database
-│       ├── Barograph.Writer        (owns the single write connection)
-│       ├── Barograph.ReadPool      (db_connection pool, N readers)
-│       └── Barograph.SeriesCache   (ETS: labels_hash -> series_id)
-└── Barograph.Ingest.Supervisor     (optional, only if listeners configured)
-    └── Barograph.Ingest.Graphite   (ThousandIsland)
+└── Barograph.DatabaseSupervisor    (DynamicSupervisor, one child per open DB)
+    └── Barograph.Database
+        ├── Barograph.Writer            (owns the single write connection)
+        ├── Barograph.ReadPool          (db_connection pool, N readers)
+        ├── Barograph.SeriesCache       (ETS: labels_hash -> series_id)
+        └── Barograph.Ingest.Supervisor (opt-in, only if `:ingest` given to `open/2`)
+            └── Barograph.Ingest.Graphite   (ThousandIsland)
 ```
+
+Deviation from an earlier draft of this diagram, shipped in v0.2:
+`Barograph.Ingest.Supervisor` is a child of `Barograph.Database`, not a
+top-level, Application-config-driven sibling of `DatabaseSupervisor`.
+Every other option in this library (batch size, time unit, aggregate
+definitions) flows through `Barograph.open/2`, and `lib/barograph/application.ex`
+starts nothing but a `Registry` + `DynamicSupervisor` — no other
+Application-env config surface exists anywhere in the codebase. Tying a
+listener's lifecycle to one already-open database also means
+`Barograph.close/1` tears it down along with everything else, and
+multiple databases can each run independent listeners with no app-level
+registry of which listener writes to which database.
 
 Multiple databases may be open simultaneously — e.g. one per tenant, or one per device on an edge gateway.
 
@@ -445,14 +457,38 @@ metric.path.name value timestamp\n
 
 Chosen because collectd (`write_graphite`), Telegraf, Vector, statsd, and Grafana Alloy all already speak it. Roughly forty lines of `ThousandIsland` handler buys the entire existing agent ecosystem.
 
-Dotted paths map to metric plus labels via a configurable template, following Graphite's own tag conventions:
+Dotted paths map to metric plus labels via a configurable template
+(`Barograph.Ingest.Graphite.Parser.compile_template/1`), given as a
+dot-separated string. `"*"` skips a path segment; any other token is a
+literal label key, matched against the segment at that position; the
+token `"metric"` must appear exactly once and only as the final token —
+it then greedily consumes all remaining path segments, joined with `.`.
+No template configured (the default) means the whole dotted path is used
+verbatim as the metric name, with no labels — zero config for plain
+untagged ingest.
 
 ```
+template: "*.forklift.metric"
+
 forklift.FL-07.engine.temp  94.2  1752931200
-→ metric: "engine.temp", labels: %{forklift: "FL-07"}
+→ metric: "engine.temp", labels: %{"forklift" => "FL-07"}
 ```
 
-Graphite 1.1+ tag syntax (`metric;tag=value`) is parsed natively where present.
+Label keys (both template- and tag-syntax-derived) are Elixir strings,
+not atoms — tag-syntax keys arrive directly off the wire from an
+external, possibly adversarial agent, and converting network-controlled
+text to atoms via `String.to_atom/1` is an unbounded atom-creation DoS
+(atoms are never garbage collected). This does not create two classes of
+series: label map canonicalisation (`Barograph.Labels.canonical/1`)
+stringifies both atom and binary keys identically, so a native write
+with `%{forklift: "FL-07"}` and an ingested sample with
+`%{"forklift" => "FL-07"}` hash to the same series.
+
+Graphite 1.1+ tag syntax (`metric;tag=value;...`) is parsed natively
+where present, independent of any configured template — a `;` in the
+metric field always takes this path. Only the `metric;tag=val` form is
+supported; the fully-tagged form with no bare name prefix (`;tag=val`)
+is not.
 
 ### 10.2 Native API
 
@@ -539,7 +575,7 @@ The `RingFile` design is documented in Appendix A but is explicitly not v1 scope
 | `exqlite` | yes | SQLite driver. **Is a NIF** — bundles the C amalgamation, compiled from source via `elixir_make`. No precompiled binaries, no vector instructions, no AVX/SIGILL class of failure. |
 | `ecto_sqlite3` | optional | Ecto integration |
 | `oban` | optional | Aggregate refresh scheduling; falls back to internal timers |
-| `thousand_island` | optional | Graphite listener; only loaded when ingest is configured |
+| `thousand_island` (`~> 1.5`) | optional | Graphite listener; only loaded when ingest is configured |
 | `jason` | no | Label and payload JSON — handled by Elixir's built-in `JSON` module (stdlib since 1.18), no dependency needed |
 
 No Rust NIFs. No precompiled artifacts. Everything compiles from source on the target.
