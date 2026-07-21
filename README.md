@@ -8,7 +8,7 @@ Barograph — time-series and event analytics for Elixir, stored in SQLite. One 
 # mix.exs
 def deps do
   [
-    {:barograph, "~> 0.1.0"}
+    {:barograph, "~> 0.2.0"}
   ]
 end
 ```
@@ -63,7 +63,10 @@ $ echo "forklift.FL-07.engine.temp 94.2 1752931200" | nc localhost 2003
 ```
 
 Graphite 1.1+ tag syntax (`metric;tag=value`) is also parsed natively,
-independent of any template. See `Barograph.Ingest.Supervisor`.
+independent of any template. The protocol has no authentication and binds
+all interfaces by default — see `Barograph.Ingest.Supervisor`'s moduledoc
+for the full option list (including `transport_options: [ip: :loopback]`)
+before exposing a listener beyond local development.
 
 ### One file, or many?
 

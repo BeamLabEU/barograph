@@ -28,6 +28,7 @@ defmodule Barograph.Ingest.Graphite.Parser do
     tokens = String.split(str, ".")
 
     cond do
+      Enum.any?(tokens, &(&1 == "")) -> {:error, :empty_template_token}
       Enum.count(tokens, &(&1 == "metric")) != 1 -> {:error, :template_requires_one_metric_token}
       List.last(tokens) != "metric" -> {:error, :metric_token_must_be_last}
       true -> {:ok, tokens}
@@ -73,9 +74,12 @@ defmodule Barograph.Ingest.Graphite.Parser do
   malformed field counts, non-numeric values, the literal `"nan"`
   value (used by collectd's `write_graphite` for undefined
   datapoints — `bg_samples.value` is `REAL NOT NULL`, and letting NaN
-  through would poison aggregate `SUM`/`AVG`/`MIN`/`MAX`), and
-  non-integer timestamps (a float-looking timestamp is malformed, not
-  truncated).
+  through would poison aggregate `SUM`/`AVG`/`MIN`/`MAX`), non-integer
+  timestamps (a float-looking timestamp is malformed, not truncated),
+  and a metric or label (key or value) that isn't valid UTF-8 — bytes
+  straight off the wire, and downstream `JSON.encode!/1` (label
+  storage, `Barograph.Writer.insert_series/4`) raises on invalid UTF-8,
+  which would otherwise crash the writer process on a single bad line.
   """
   @spec parse_line(String.t(), template() | nil) ::
           {:ok, {String.t(), map(), float(), integer()}} | :error
@@ -83,12 +87,18 @@ defmodule Barograph.Ingest.Graphite.Parser do
     with [metric_field, value_field, ts_field] <-
            line |> String.trim_trailing("\r") |> String.split(),
          {:ok, metric, labels} <- resolve_metric(metric_field, template),
+         true <- valid_utf8?(metric, labels),
          {:ok, value} <- parse_value(value_field),
          {:ok, ts} <- parse_ts(ts_field) do
       {:ok, {metric, labels, value, ts}}
     else
       _ -> :error
     end
+  end
+
+  defp valid_utf8?(metric, labels) do
+    String.valid?(metric) and
+      Enum.all?(labels, fn {key, value} -> String.valid?(key) and String.valid?(value) end)
   end
 
   defp resolve_metric(field, template) do

@@ -27,12 +27,12 @@ if Code.ensure_loaded?(ThousandIsland) do
     @impl ThousandIsland.Handler
     def handle_data(data, _socket, state) do
       buffer = state.buffer <> data
+      {lines, rest} = split_lines(buffer)
 
-      if byte_size(buffer) > state.max_line_length and not String.contains?(buffer, "\n") do
+      if oversized?(lines, rest, state.max_line_length) do
         Logger.warning("barograph: graphite line exceeds max_line_length, closing connection")
         {:close, state}
       else
-        {lines, rest} = split_lines(buffer)
         samples = Enum.flat_map(lines, &parse(&1, state))
         if samples != [], do: ingest(state.db, samples)
         {:continue, %{state | buffer: rest}}
@@ -59,6 +59,14 @@ if Code.ensure_loaded?(ThousandIsland) do
       {lines, rest}
     end
 
+    # Checked on the post-split lines and remainder, not the raw buffer —
+    # a buffer containing "\n" anywhere (however short the first line) used
+    # to bypass the old pre-split check entirely, letting an unbounded
+    # trailing remainder or an oversized complete line through unchecked.
+    defp oversized?(lines, rest, max_line_length) do
+      byte_size(rest) > max_line_length or Enum.any?(lines, &(byte_size(&1) > max_line_length))
+    end
+
     defp parse(line, state) do
       case Parser.parse_line(line, state.template) do
         {:ok, {metric, labels, value, ts}} ->
@@ -66,12 +74,20 @@ if Code.ensure_loaded?(ThousandIsland) do
 
         :error ->
           if String.trim(line) != "" do
-            Logger.warning("barograph: skipping malformed graphite line: #{inspect(line)}")
+            Logger.warning(
+              "barograph: skipping malformed graphite line (#{byte_size(line)} bytes): " <>
+                inspect(truncate(line))
+            )
           end
 
           []
       end
     end
+
+    # binary_part/3, not String.slice/2 — must stay valid on invalid UTF-8
+    # (that's one of the reasons a line ends up here as malformed).
+    defp truncate(line) when byte_size(line) <= 120, do: line
+    defp truncate(line), do: binary_part(line, 0, 120) <> "..."
 
     # No application-level ack in this protocol to signal back-pressure
     # upstream, so drop + log is the only sane choice for a fire-and-forget

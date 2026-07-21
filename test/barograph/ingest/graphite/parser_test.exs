@@ -22,6 +22,11 @@ defmodule Barograph.Ingest.Graphite.ParserTest do
     test "metric token must be last" do
       assert {:error, :metric_token_must_be_last} = Parser.compile_template("metric.forklift")
     end
+
+    test "rejects empty tokens" do
+      assert {:error, :empty_template_token} = Parser.compile_template("foo..metric")
+      assert {:error, :empty_template_token} = Parser.compile_template(".metric")
+    end
   end
 
   describe "parse_line/2 — no template" do
@@ -99,6 +104,23 @@ defmodule Barograph.Ingest.Graphite.ParserTest do
 
     test "blank line" do
       assert :error = Parser.parse_line("", nil)
+    end
+
+    test "invalid UTF-8 in the metric is rejected, not just passed through" do
+      bad = <<"m", 0xFF, 0xFE>>
+      refute String.valid?(bad)
+      assert :error = Parser.parse_line(bad <> " 1.0 100", nil)
+    end
+
+    test "invalid UTF-8 in a tag value is rejected" do
+      bad = <<"metric;tag=", 0xFF, 0xFE>>
+      assert :error = Parser.parse_line(bad <> " 1.0 100", nil)
+    end
+
+    test "invalid UTF-8 in a template-derived label value is rejected" do
+      {:ok, template} = Parser.compile_template("*.forklift.metric")
+      bad = <<"forklift.", 0xFF, 0xFE, ".engine.temp">>
+      assert :error = Parser.parse_line(bad <> " 1.0 100", template)
     end
   end
 end

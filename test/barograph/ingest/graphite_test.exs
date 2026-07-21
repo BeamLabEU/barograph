@@ -106,4 +106,54 @@ defmodule Barograph.Ingest.GraphiteTest do
     assert {:ok, [%{value: 1.0}]} = query_until(db, "a")
     assert {:ok, [%{value: 2.0}]} = query_until(db, "b")
   end
+
+  test "a configured template splits metric and labels end-to-end", context do
+    {db, socket} = open_with_listener(context, template: "*.forklift.metric")
+
+    :ok = :gen_tcp.send(socket, "forklift.FL-07.engine.temp 94.2 1752931200\n")
+
+    assert {:ok, [%{value: 94.2}]} =
+             query_until(db, "engine.temp", [labels: %{"forklift" => "FL-07"}], &(&1 != []))
+  end
+
+  test "graphite's unix-second timestamps convert to the database's time unit", context do
+    path = db_path(context)
+    {:ok, db} = Barograph.open(path, time_unit: :millisecond, ingest: [graphite: [port: 0]])
+    {:ok, port} = Graphite.port(db)
+    {:ok, socket} = :gen_tcp.connect(~c"localhost", port, [:binary, active: false])
+
+    :ok = :gen_tcp.send(socket, "m 1.0 1752931200\n")
+
+    assert {:ok, [%{ts: 1_752_931_200_000}]} = query_until(db, "m")
+  end
+
+  test "a complete line longer than max_line_length closes the connection", context do
+    {_db, socket} = open_with_listener(context, max_line_length: 16)
+
+    :ok = :gen_tcp.send(socket, String.duplicate("x", 100) <> " 1.0 100\n")
+
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2000)
+  end
+
+  test "an oversized remainder without a trailing newline still closes the connection", context do
+    # Regression for the bug where the old pre-split check only fired when
+    # the buffer had *no* newline at all — a short valid line followed by
+    # an unbounded, newline-less remainder in the same read bypassed it.
+    {_db, socket} = open_with_listener(context, max_line_length: 16)
+
+    :ok = :gen_tcp.send(socket, "ok\n" <> String.duplicate("x", 100))
+
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2000)
+  end
+
+  test "an invalid-UTF-8 tag value is skipped without crashing the writer or the connection",
+       context do
+    {db, socket} = open_with_listener(context)
+
+    bad = <<"m;tag=", 0xFF, 0xFE, " 1.0 100\n">>
+    :ok = :gen_tcp.send(socket, bad)
+    :ok = :gen_tcp.send(socket, "m 2.0 200\n")
+
+    assert {:ok, [%{value: 2.0}]} = query_until(db, "m")
+  end
 end

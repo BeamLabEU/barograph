@@ -29,7 +29,10 @@ defmodule Barograph do
       this database, e.g. `ingest: [graphite: [port: 2003]]`. Omit for no
       listeners (default — the native `write/4,5` API always works
       regardless). Requires the optional `:thousand_island` dependency.
-      See `Barograph.Ingest.Supervisor`.
+      No authentication and no cardinality limit — see
+      `Barograph.Ingest.Supervisor`'s moduledoc for the full option list,
+      defaults, and network exposure notes before binding beyond
+      loopback.
 
   ## Examples
 
@@ -59,7 +62,8 @@ defmodule Barograph do
   end
 
   @doc """
-  Closes an open database, terminating its writer and read pool.
+  Closes an open database, terminating its supervision tree — writer,
+  refresher, series cache, and any optional ingest listeners.
 
   The file itself is untouched.
   """
